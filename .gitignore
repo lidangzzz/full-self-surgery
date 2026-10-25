@@ -1,0 +1,35 @@
+# Unity generated
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.csproj
+*.sln
+*.user
+*.pidb
+*.booproj
+*.suo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Unity crash reports
+sysinfo.txt
+*.stackdump
+
+# SofaUnity is a 1.2 GB upstream checkout - not vendored in this repo.
+# Run ./setup-sofaunity.sh to clone it + apply the compatibility patch.
+Assets/SofaUnity/
+
+# Unity-generated solution files
+*.slnx
+.vscode/

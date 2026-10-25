@@ -1,0 +1,199 @@
+diff --git a/.gitmodules b/.gitmodules
+index bd091fb4..055a5b2c 100644
+--- a/.gitmodules
++++ b/.gitmodules
+@@ -15,4 +15,4 @@
+ 	url = https://gitlab.com/infinytech3d/SU_BeamAdapter.git
+ [submodule "Modules"]
+ 	path = Modules
+-	url = git@github.com:InfinyTech3D/SofaUnity_modules.git
++	url = https://github.com/InfinyTech3D/SofaUnity_modules.git
+diff --git a/Core/Plugins/SofaUnityAPI/SofaContextAPI.cs b/Core/Plugins/SofaUnityAPI/SofaContextAPI.cs
+index 03713361..82b419e0 100644
+--- a/Core/Plugins/SofaUnityAPI/SofaContextAPI.cs
++++ b/Core/Plugins/SofaUnityAPI/SofaContextAPI.cs
+@@ -129,6 +129,8 @@ namespace SofaUnityAPI
+             }
+ 
+             m_sofaVersion = sofaPhysicsAPI_version(m_native);
++            if (string.IsNullOrEmpty(m_sofaVersion)) // shimmed out on older native builds
++                m_sofaVersion = sofaPhysicsAPI_APIName(m_native);
+         }
+ 
+ 
+@@ -611,7 +613,14 @@ namespace SofaUnityAPI
+         public static extern string sofaPhysicsAPI_APIName(IntPtr obj);
+ 
+         [DllImport("SofaVerseAPI", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
+-        public static extern string sofaPhysicsAPI_version(IntPtr obj);
++private static extern string sofaPhysicsAPI_version_impl(IntPtr obj);
++
++        /// Shim: this entry point is absent from SofaVerseAPI <= 25.12 native builds.
++        public static string sofaPhysicsAPI_version(IntPtr obj)
++        {
++            try { return sofaPhysicsAPI_version_impl(obj); } catch (EntryPointNotFoundException) { return null; }
++        }
++
+ 
+ 
+         /// Bindings to create or load an existing simulation scene
+@@ -640,10 +649,24 @@ namespace SofaUnityAPI
+ 
+         /// Bindings to hangle glew creation/destruction
+         [DllImport("SofaVerseAPI", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
+-        public static extern int sofaPhysicsAPI_initGlutGlew(IntPtr obj);
++private static extern int sofaPhysicsAPI_initGlutGlew_impl(IntPtr obj);
++
++        /// Shim: this entry point is absent from SofaVerseAPI <= 25.12 native builds.
++        public static int sofaPhysicsAPI_initGlutGlew(IntPtr obj)
++        {
++            try { return sofaPhysicsAPI_initGlutGlew_impl(obj); } catch (EntryPointNotFoundException) { return 0; }
++        }
++
+ 
+         [DllImport("SofaVerseAPI", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
+-        public static extern int sofaPhysicsAPI_freeGlutGlew(IntPtr obj);
++private static extern int sofaPhysicsAPI_freeGlutGlew_impl(IntPtr obj);
++
++        /// Shim: this entry point is absent from SofaVerseAPI <= 25.12 native builds.
++        public static int sofaPhysicsAPI_freeGlutGlew(IntPtr obj)
++        {
++            try { return sofaPhysicsAPI_freeGlutGlew_impl(obj); } catch (EntryPointNotFoundException) { return 0; }
++        }
++
+ 
+         
+         /// Bindings to communicate with the simulation loop
+@@ -687,10 +710,24 @@ namespace SofaUnityAPI
+         public static extern int test_getAPI_ID(IntPtr obj);
+ 
+         [DllImport("SofaVerseAPI", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
+-        public static extern void sofaPhysicsAPI_setTestName(IntPtr obj, string name);
++private static extern void sofaPhysicsAPI_setTestName_impl(IntPtr obj, string name);
++
++        /// Shim: this entry point is absent from SofaVerseAPI <= 25.12 native builds.
++        public static void sofaPhysicsAPI_setTestName(IntPtr obj, string name)
++        {
++            try { sofaPhysicsAPI_setTestName_impl(obj, name); } catch (EntryPointNotFoundException) { }
++        }
++
+ 
+         [DllImport("SofaVerseAPI", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
+-        public static extern string sofaPhysicsAPI_testName(IntPtr obj);
++private static extern string sofaPhysicsAPI_testName_impl(IntPtr obj);
++
++        /// Shim: this entry point is absent from SofaVerseAPI <= 25.12 native builds.
++        public static string sofaPhysicsAPI_testName(IntPtr obj)
++        {
++            try { return sofaPhysicsAPI_testName_impl(obj); } catch (EntryPointNotFoundException) { return null; }
++        }
++
+ 
+ 
+         /// logging api
+@@ -726,22 +763,50 @@ namespace SofaUnityAPI
+ 
+ 
+         [DllImport("SofaVerseAPI", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
+-        public static extern string sofaPhysicsAPI_getComponentsAsString(IntPtr obj, string nodeName);
++private static extern string sofaPhysicsAPI_getComponentsAsString_impl(IntPtr obj, string nodeName);
++
++        /// Shim: this entry point is absent from SofaVerseAPI <= 25.12 native builds.
++        public static string sofaPhysicsAPI_getComponentsAsString(IntPtr obj, string nodeName)
++        {
++            try { return sofaPhysicsAPI_getComponentsAsString_impl(obj, nodeName); } catch (EntryPointNotFoundException) { return null; }
++        }
++
+ 
+ 
+ 
+         /// old binding API
+         /// Warning: This method has been depreciate.
+         [DllImport("SofaVerseAPI")]
+-        public static extern int sofaPhysicsAPI_getNumberObjects(IntPtr obj);
++private static extern int sofaPhysicsAPI_getNumberObjects_impl(IntPtr obj);
++
++        /// Shim: this entry point is absent from SofaVerseAPI <= 25.12 native builds.
++        public static int sofaPhysicsAPI_getNumberObjects(IntPtr obj)
++        {
++            try { return sofaPhysicsAPI_getNumberObjects_impl(obj); } catch (EntryPointNotFoundException) { return 0; }
++        }
++
+ 
+         /// Warning: This method has been depreciate.
+         [DllImport("SofaVerseAPI", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
+-        public static extern string sofaPhysicsAPI_get3DObjectName(IntPtr obj, int id);
++private static extern string sofaPhysicsAPI_get3DObjectName_impl(IntPtr obj, int id);
++
++        /// Shim: this entry point is absent from SofaVerseAPI <= 25.12 native builds.
++        public static string sofaPhysicsAPI_get3DObjectName(IntPtr obj, int id)
++        {
++            try { return sofaPhysicsAPI_get3DObjectName_impl(obj, id); } catch (EntryPointNotFoundException) { return null; }
++        }
++
+ 
+         /// Warning: This method has been depreciate.
+         [DllImport("SofaVerseAPI", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
+-        public static extern string sofaPhysicsAPI_get3DObjectType(IntPtr obj, int id);
++private static extern string sofaPhysicsAPI_get3DObjectType_impl(IntPtr obj, int id);
++
++        /// Shim: this entry point is absent from SofaVerseAPI <= 25.12 native builds.
++        public static string sofaPhysicsAPI_get3DObjectType(IntPtr obj, int id)
++        {
++            try { return sofaPhysicsAPI_get3DObjectType_impl(obj, id); } catch (EntryPointNotFoundException) { return null; }
++        }
++
+ 
+ 
+         [DllImport("SofaVerseAPI", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
+diff --git a/Core/Plugins/SofaUnityAPI/SofaUtils.cs b/Core/Plugins/SofaUnityAPI/SofaUtils.cs
+index 9f28f5f7..6cf95b3f 100644
+--- a/Core/Plugins/SofaUnityAPI/SofaUtils.cs
++++ b/Core/Plugins/SofaUnityAPI/SofaUtils.cs
+@@ -1,6 +1,5 @@
+ ﻿using System.Collections;
+ using System.Collections.Generic;
+-using Unity.VisualScripting;
+ using UnityEngine;
+ 
+ namespace SofaUnityAPI
+diff --git a/Core/Scripts/Core/System/PluginManager.cs b/Core/Scripts/Core/System/PluginManager.cs
+index 3da5a6da..b1755d0d 100644
+--- a/Core/Scripts/Core/System/PluginManager.cs
++++ b/Core/Scripts/Core/System/PluginManager.cs
+@@ -5,7 +5,6 @@ using UnityEditor;
+ using SofaUnityAPI;
+ using System.IO;
+ using System;
+-using Unity.VisualScripting;
+ #if UNITY_EDITOR
+ using UnityEditor.VersionControl;
+ #endif
+diff --git a/Core/Scripts/Modules/CuttingTools/CuttingManager.cs b/Core/Scripts/Modules/CuttingTools/CuttingManager.cs
+index 79c288d6..cd807450 100644
+--- a/Core/Scripts/Modules/CuttingTools/CuttingManager.cs
++++ b/Core/Scripts/Modules/CuttingTools/CuttingManager.cs
+@@ -24,8 +24,7 @@ namespace SofaUnity
+         [SerializeField]
+         private float m_cutDepth = 1.0f;
+ 
+-        [SerializeField]
+-        public Vector3 CutPointA
++                public Vector3 CutPointA
+         {
+             get { return m_cutPointA; }
+             set
+diff --git a/Core/Scripts/Modules/Objects/SofaSphereCollisionObject.cs b/Core/Scripts/Modules/Objects/SofaSphereCollisionObject.cs
+index 058b6ad4..402b2140 100644
+--- a/Core/Scripts/Modules/Objects/SofaSphereCollisionObject.cs
++++ b/Core/Scripts/Modules/Objects/SofaSphereCollisionObject.cs
+@@ -25,8 +25,7 @@ namespace SofaUnity
+         /// <summary>
+         /// Reference to SofaSphereCollision : commun part of  SofaSphereCollisionHand and SofaSphereCollisionObject
+         /// </summary>
+-        [SerializeField]
+-        public SofaSphereCollision SofaSphereCollision
++                public SofaSphereCollision SofaSphereCollision
+         {
+             get => m_sofaSphereCollision;
+             set => m_sofaSphereCollision = value;
