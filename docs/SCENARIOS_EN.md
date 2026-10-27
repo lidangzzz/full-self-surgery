@@ -1,4 +1,4 @@
-# Scenario Catalogue (69 Scenarios)
+# Full Self Surgery — Scenario Catalogue (69 Scenarios)
 
 ## System Overview
 

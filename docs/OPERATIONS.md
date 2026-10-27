@@ -1,4 +1,4 @@
-# SofaRobotAI Operations Guide
+# Full Self Surgery — Operations Guide
 
 ## Quick Start
 

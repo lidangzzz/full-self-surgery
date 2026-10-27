@@ -1,4 +1,6 @@
-# SofaRobotAI — Multi-Arm AI Agent Surgical Simulation
+# Full Self Surgery
+
+Autonomous AI surgical simulation: multi-arm robotic microsurgery on SOFA soft-tissue FEM organs, driven entirely through an HTTP Agent API.
 
 A Unity 3D project built on [SofaUnity](https://github.com/InfinyTech3D/SofaUnity) (SOFA physics engine integration): **N multi-DOF surgical robot arms, each controlled by a pluggable AI agent brain**, performing autonomous pick-and-place and **surgical suturing demonstrations** — needle-driven wound closure on SOFA soft-tissue FEM organs with real-time deformation.
 

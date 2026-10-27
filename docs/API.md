@@ -1,4 +1,4 @@
-# SofaRobotAI Agent HTTP API Reference
+# Full Self Surgery — Agent HTTP API Reference
 
 > **Base URL**: `http://127.0.0.1:8765` (loopback only; starts automatically in Play mode)
 > **Protocol**: HTTP/1.1 + JSON (UTF-8). State snapshots refresh ~4Hz; commands execute on the next Unity frame.

@@ -1,4 +1,4 @@
-# SofaRobotAI Documentation
+# Full Self Surgery — Documentation
 
 ## Core References
 

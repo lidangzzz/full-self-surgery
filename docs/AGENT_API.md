@@ -1,4 +1,4 @@
-# SofaRobotAI Agent API 手册
+# Full Self Surgery Agent API 手册
 
 > **用途**：供外部 AI Agent（LLM、脚本、自动化测试框架）读取仿真状态、读取机械臂状态、
 > 并通过调用 API 操作 67 个手术场景与机械臂。

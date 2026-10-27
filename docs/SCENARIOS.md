@@ -1,4 +1,4 @@
-# SofaRobotAI 场景手册（69 个手术场景全目录）
+# Full Self Surgery 场景手册（69 个手术场景全目录）
 
 > 运行方式：Unity 打开本项目 → `Assets/Scenes/MultiArmAgentScene.unity` → Play。
 > 机械臂全部为 **4-5 自由度**；组织为 **SOFA FEM 软体**（原生 SofaVerseAPI 求解）；
