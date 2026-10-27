@@ -149,10 +149,13 @@ namespace SofaRobotAI.Agent
         /// <summary>Needle-tissue coupling gate: the autonomy executor's
         /// pierce/through phases, OR an API-driven needle that has physically
         /// descended below the tissue surface (manual API suturing must bend
-        /// the SOFA tissue exactly like the autonomous one).</summary>
+        /// the SOFA tissue/brain exactly like the autonomous one). The gate
+        /// follows the scenario's working surface (0.53 pad / 0.634 cortex).</summary>
         public bool NeedleInTissue =>
             Suturing && _sutureExecutor.TipInTissue ||
-            ApiControl && Needle != null && Needle.Tip.position.y < 0.548f;
+            ApiControl && Needle != null &&
+            Needle.Tip.position.y < ((_manager != null && _manager.ActiveScenario != null
+                ? _manager.ActiveScenario.TissueSurfaceY : 0.53f) + 0.015f);
 
         private void Update()
         {

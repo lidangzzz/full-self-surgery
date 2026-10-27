@@ -123,6 +123,11 @@ namespace SofaRobotAI
 
             if (suturingMode)
             {
+                // Five-camera observation wall (front/back/left/right/top PIP
+                // tiles + per-camera API screenshots). Persists across
+                // scenario switches (name does not end in "Cell").
+                Core.CameraWall.Create(transform);
+
                 // The live SOFA tissue mirror persists across scenario switches.
                 if (ActiveBackend is SofaUnityBackend sofa && sofa.Coupling != null)
                     TissueDeformationSync.Create(transform, sofa.Coupling,
@@ -214,6 +219,13 @@ namespace SofaRobotAI
             {
                 Transform child = transform.GetChild(i);
                 if (child.name.EndsWith("Cell")) Destroy(child.gameObject);
+            }
+
+            // Leaving the brain scenario: bring the tissue-pad mirror back.
+            if (TissueDeformationSync.LastInstance != null)
+            {
+                var padRenderer = TissueDeformationSync.LastInstance.GetComponent<Renderer>();
+                if (padRenderer != null) padRenderer.enabled = true;
             }
         }
 

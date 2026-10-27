@@ -45,7 +45,10 @@ namespace SofaRobotAI.Backend
 
         private SofaUnity.SofaContext _sofaContext;
         // SceneFileManager resolves paths relative to Application.dataPath (Assets/).
-        private const string ScenePath = "/StreamingAssets/SOFA/robot_cell.scn";
+        // brain_cell = robot_cell + the SOFA-simulated brain (both FEM bodies
+        // coexist; every scenario keeps its pad, the brain scenario shows the
+        // brain on top).
+        private const string ScenePath = "/StreamingAssets/SOFA/brain_cell.scn";
 
         /// <summary>Native needle-tissue force coupling (null when unavailable).</summary>
         public Surgery.NeedleTissueCoupling Coupling { get; private set; }

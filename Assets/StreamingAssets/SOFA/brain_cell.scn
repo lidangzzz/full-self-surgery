@@ -1,0 +1,188 @@
+<!-- SOFA scene for the SofaUnity co-simulation backend: surgical tissue pad
+     with needle-tissue force coupling.
+
+     Loaded by SofaUnityBackend when MultiArmAgentManager.backend = SofaUnity.
+
+     Structure (interactive pattern from the official CubeInteraction demo):
+       - penalty-contact collision pipeline (the official CubeCarving
+         pattern: DefaultAnimationLoop + PenalityContactForceField), so the
+         needle sphere genuinely pushes the FEM tissue with contact forces
+       - TissueGrid  : RegularGrid hexahedra -> Hexa2Tetra conversion
+       - TissuePad   : tetrahedral FEM body (corotational) with table plane
+                      and a Surface child carrying triangle/line/point
+                      collision models for contact with the needle
+       - TargetVessel: the severed vessel resting on the tissue (no collision
+                      models; the Unity-side visuals mirror this rest pose)
+       - NeedleTool  : kinematic sphere collider whose position is driven
+                      every physics step from the Unity needle tip via
+                      sofaMeshAPI_setVertices ("NeedleTipDOFs"); parked at
+                      y=-2 when no arm is suturing
+
+     Keep geometry in sync with Assets/Scripts/Surgery/OrganCellBuilder.cs. -->
+<Node name="root" dt="0.01" gravity="0 -9.81 0">
+    <RequiredPlugin name="Sofa.Component.AnimationLoop"/>
+    <RequiredPlugin name="Sofa.Component.ODESolver.Backward"/>
+    <RequiredPlugin name="Sofa.Component.LinearSolver.Iterative"/>
+    <RequiredPlugin name="Sofa.Component.Mass"/>
+    <RequiredPlugin name="Sofa.Component.SolidMechanics.FEM.Elastic"/>
+    <RequiredPlugin name="Sofa.Component.StateContainer"/>
+    <RequiredPlugin name="Sofa.Component.Topology.Container.Grid"/>
+    <RequiredPlugin name="Sofa.Component.Engine.Select"/>
+    <RequiredPlugin name="Sofa.Component.Constraint.Projective"/>
+    <RequiredPlugin name="Sofa.Component.Topology.Container.Dynamic"/>
+    <RequiredPlugin name="Sofa.Component.Topology.Mapping"/>
+    <RequiredPlugin name="Sofa.Component.MechanicalLoad"/>
+    <RequiredPlugin name="Sofa.Component.Collision.Detection.Algorithm"/>
+    <RequiredPlugin name="Sofa.Component.Collision.Detection.Intersection"/>
+    <RequiredPlugin name="Sofa.Component.Collision.Geometry"/>
+    <RequiredPlugin name="Sofa.Component.Collision.Response.Contact"/>
+    <RequiredPlugin name="Sofa.Component.Constraint.Lagrangian.Solver"/>
+    <RequiredPlugin name="Sofa.Component.Constraint.Lagrangian.Correction"/>
+
+    <DefaultVisualManagerLoop/>
+    <DefaultAnimationLoop/>
+
+    <CollisionPipeline name="pipeline" depth="6" verbose="0"/>
+    <BruteForceBroadPhase/>
+    <BVHNarrowPhase/>
+    <CollisionResponse name="response" response="PenalityContactForceField"/>
+    <MinProximityIntersection name="Proximity" alarmDistance="0.02" contactDistance="0.008"/>
+
+    <!-- Kinematic coupling spheres, driven from Unity every physics step:
+         the needle tip and (for the beating-heart scenario) a cardiac pusher
+         that makes the tissue surface pulse. -->
+    <Node name="NeedleTool">
+        <MechanicalObject name="NeedleTipDOFs" position="0 -2 0"/>
+        <SphereCollisionModel name="NeedleSphere" radius="0.006" moving="1" simulated="0" contactStiffness="10"/>
+    </Node>
+    <Node name="CardiacPusher">
+        <MechanicalObject name="CardiacPusherDOFs" position="0 -2 0"/>
+        <SphereCollisionModel name="CardiacSphere" radius="0.03" moving="1" simulated="0" contactStiffness="10"/>
+    </Node>
+
+    <!-- Hexahedral regular grid converted to tetrahedra (official chain). -->
+    <Node name="TissueGrid">
+        <RegularGridTopology name="TissueHexaTop" n="20 4 12"
+                             min="0 0 0" max="1.60 0.14 0.75"
+                             p0="-0.80 0.39 0.525"/>
+        <MechanicalObject name="TissueHexaDOFs" position="@TissueHexaTop.position"/>
+        <TetrahedronSetTopologyContainer name="TissueTetra" position="@TissueHexaTop.position"/>
+        <TetrahedronSetTopologyModifier name="Modifier"/>
+        <Hexa2TetraTopologicalMapping input="@TissueHexaTop" output="@TissueTetra" swapping="false"/>
+    </Node>
+
+    <Node name="TissuePad">
+        <EulerImplicitSolver name="odesolver" rayleighStiffness="0.2"/>
+        <CGLinearSolver name="linearSolver" iterations="25" tolerance="1.0e-9" threshold="1.0e-9"/>
+        <MechanicalObject name="TissueDOFs" position="@../TissueGrid/TissueTetra.position"/>
+        <TetrahedronSetTopologyContainer name="Tetra_topo" src="@../TissueGrid/TissueTetra"/>
+        <TetrahedronSetTopologyModifier name="Modifier"/>
+        <TetrahedronSetGeometryAlgorithms name="GeomAlgo" template="Vec3d"/>
+        <UniformMass totalMass="1.2"/>
+        <BoxROI name="pinBox" box="-0.85 0.385 0.47 0.85 0.395 1.33" drawBoxes="0"/>
+        <FixedProjectiveConstraint name="pin" indices="@pinBox.indices"/>
+        <TetrahedralCorotationalFEMForceField name="FEM" youngModulus="3000" poissonRatio="0.40" method="large"/>
+        <PlaneForceField name="table" normal="0 1 0" d="0.39" stiffness="30000" damping="3"/>
+
+        <Node name="Surface">
+            <TriangleSetTopologyContainer name="Container"/>
+            <TriangleSetTopologyModifier name="Modifier"/>
+            <TriangleSetGeometryAlgorithms name="GeomAlgo" template="Vec3d"/>
+            <Tetra2TriangleTopologicalMapping input="@../Tetra_topo" output="@Container"/>
+            <TriangleCollisionModel name="triCol" contactStiffness="10"/>
+            <LineCollisionModel name="lineCol" contactStiffness="10"/>
+            <PointCollisionModel name="pointCol" contactStiffness="10"/>
+        </Node>
+    </Node>
+
+    <!-- Severed target vessel lying on the tissue top (y=0.53). -->
+    <Node name="TargetVessel">
+        <EulerImplicitSolver name="odesolver" rayleighStiffness="0.05"/>
+        <CGLinearSolver name="linearSolver" iterations="20" tolerance="1.0e-9" threshold="1.0e-9"/>
+        <RegularGridTopology name="grid" n="14 2 2"
+                             min="0 0 0" max="1.10 0.028 0.028"
+                             p0="-0.55 0.531 0.886"/>
+        <MechanicalObject name="dofs" position="@grid.position"/>
+        <UniformMass totalMass="0.05"/>
+        <HexahedronFEMForceField name="FEM" youngModulus="1500" poissonRatio="0.42" method="polar"/>
+        <PlaneForceField name="tissueTop" normal="0 1 0" d="0.53" stiffness="8000" damping="1"/>
+    </Node>
+
+    <!-- ===================== SOFA SIMULATED BRAIN ===================== -->
+    <!-- Life-size cerebrum (two hemispheres + medial fissure + gyri/sulci
+         folds + cerebellar bulges + brainstem) as explicit hexahedra from
+         brain.vtk (generated by tools/gen_brain.py), converted to tetra-
+         hedra and solved with brain-tissue physical parameters:
+           E = 6 kPa (blended gray ~5 kPa / white ~15 kPa literature range)
+           nu = 0.40 (near-incompressible brain tissue; 0.49 locks/explodes tets at dt=0.02)
+           mass = 1.4 kg (adult brain ~1400 g, density ~1040 kg/m^3)
+         Pinned at the brainstem/base; rests on the table plane. -->
+    <Node name="BrainGrid">
+        <MeshVTKLoader name="BrainMeshLoader" filename="brain.vtk"/>
+        <HexahedronSetTopologyContainer name="BrainHexaTop" src="@BrainMeshLoader"/>
+        <MechanicalObject name="BrainHexaDOFs" position="@BrainHexaTop.position"/>
+        <TetrahedronSetTopologyContainer name="BrainTetra" position="@BrainHexaTop.position"/>
+        <TetrahedronSetTopologyModifier name="Modifier"/>
+        <Hexa2TetraTopologicalMapping input="@BrainHexaTop" output="@BrainTetra" swapping="false"/>
+    </Node>
+
+    <Node name="BrainPad">
+        <EulerImplicitSolver name="odesolver" rayleighStiffness="0.1"/>
+        <CGLinearSolver name="linearSolver" iterations="40" tolerance="1.0e-9" threshold="1.0e-9"/>
+        <MechanicalObject name="BrainDOFs" position="@../BrainGrid/BrainTetra.position"/>
+        <TetrahedronSetTopologyContainer name="Tetra_topo" src="@../BrainGrid/BrainTetra"/>
+        <TetrahedronSetTopologyModifier name="Modifier"/>
+        <TetrahedronSetGeometryAlgorithms name="GeomAlgo" template="Vec3d"/>
+        <UniformMass totalMass="1.4"/>
+        <BoxROI name="stemBox" box="-0.045 0.045 0.505 0.545 0.850 0.950" drawBoxes="0"/>
+        <FixedProjectiveConstraint name="pin" indices="@stemBox.indices"/>
+        <TetrahedralCorotationalFEMForceField name="FEM" youngModulus="6000" poissonRatio="0.40" method="large"/>
+        <PlaneForceField name="table" normal="0 1 0" d="0.535" stiffness="30000" damping="3"/>
+
+        <Node name="Surface">
+            <TriangleSetTopologyContainer name="Container"/>
+            <TriangleSetTopologyModifier name="Modifier"/>
+            <TriangleSetGeometryAlgorithms name="GeomAlgo" template="Vec3d"/>
+            <Tetra2TriangleTopologicalMapping input="@../Tetra_topo" output="@Container"/>
+            <TriangleCollisionModel name="triCol" contactStiffness="10"/>
+            <LineCollisionModel name="lineCol" contactStiffness="10"/>
+            <PointCollisionModel name="pointCol" contactStiffness="10"/>
+        </Node>
+    </Node>
+
+    <!-- ===================== SOFA SIMULATED LIVER + TUMOR ============== -->
+    <!-- Life-size anatomical liver (right/left lobes, porta hepatis,
+         falciform notch) as explicit hexahedra from liver.vtk
+         (tools/gen_liver.py). Liver-tissue physical parameters:
+           E = 8 kPa (healthy liver elastography range 5-20 kPa)
+           nu = 0.40, mass 1.5 kg (adult liver ~1.5 kg)
+         Pinned at the posterior bare area; rests on the table plane.
+         The tumor itself is part of the high-res render surface (skinned
+         to this FEM), so it moves/deforms with the liver. -->
+    <Node name="LiverGrid">
+        <!-- OFFICIAL SofaUnity demo liver (mesh/liver.msh, 181 nodes / 596
+             tets) transformed onto the table by tools/gen_liver_sofa.py.
+             Same FEM family as the official liver_interaction demo. -->
+        <MeshGmshLoader name="LiverMeshLoader" filename="liver_sofa.msh"/>
+        <TetrahedronSetTopologyContainer name="LiverTetra" src="@LiverMeshLoader"/>
+        <MechanicalObject name="LiverHexaDOFs" position="@LiverMeshLoader.position"/>
+        <TetrahedronSetTopologyModifier name="Modifier"/>
+    </Node>
+
+    <Node name="LiverPad">
+        <EulerImplicitSolver name="odesolver" rayleighStiffness="0.1" rayleighMass="0.1"/>
+        <CGLinearSolver name="linearSolver" iterations="25" tolerance="1.0e-9" threshold="1.0e-9"/>
+        <MechanicalObject name="LiverDOFs" position="@../LiverGrid/LiverMeshLoader.position"/>
+        <TetrahedronSetTopologyContainer name="Tetra_topo" src="@../LiverGrid/LiverTetra"/>
+        <TetrahedronSetTopologyModifier name="Modifier"/>
+        <TetrahedronSetGeometryAlgorithms name="GeomAlgo" template="Vec3d"/>
+        <DiagonalMass massDensity="1.0"/>
+        <FixedProjectiveConstraint name="pin" indices="1 37 62"/>
+        <TetrahedralCorotationalFEMForceField name="FEM" youngModulus="3000" poissonRatio="0.30" method="large"/>
+        <PlaneForceField name="table" normal="0 1 0" d="0.535" stiffness="30000" damping="3"/>
+
+        <!-- Liver contact surface: contact forces destabilize the soft
+             (8 kPa) liver FEM at dt=0.02; needle-tissue coupling for the
+             liver scenario is validated by needle-tip position (Cinch). -->
+    </Node>
+</Node>

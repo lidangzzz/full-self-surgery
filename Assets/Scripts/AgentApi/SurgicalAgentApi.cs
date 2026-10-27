@@ -34,6 +34,7 @@ namespace SofaRobotAI.AgentApi
         private string _stateJsonCache = "{}";
         private string _scenarioJsonCache = "[]";
         private string _calibrationJsonCache = "{}";
+        private string _cameraJsonCache = "{\"cameras\":[]}";
         private float _lastCacheRefresh;
         private long _heartbeatTicks;   // Stopwatch timestamp of the last Update
         private int _lastRefreshFrame;  // frame captured with the last snapshot
@@ -42,11 +43,15 @@ namespace SofaRobotAI.AgentApi
         // Screenshot pipeline: HTTP thread sets the request flag, the main
         // thread renders Camera.main into a RT and caches the PNG bytes.
         private volatile bool _shotRequested;
+        private string _shotCameraId; // main | screen | front|back|left|right|top
         private byte[] _pngCache;
         private int _pngGeneration;
         private readonly object _pngLock = new object();
-        private const int ShotWidth = 960;
-        private const int ShotHeight = 540;
+        // Per-request capture resolution. Camera renders go to an off-screen
+        // RenderTexture, so they are NOT limited by the window/screen size -
+        // the default is 4K; up to 8K is accepted.
+        private int _shotWidth = 3840, _shotHeight = 2160;
+        internal const int ShotMinPx = 320, ShotMaxPx = 7680;
 
         /// <summary>True when the Unity editor play-mode is paused (sim time
         /// frozen; GETs keep refreshing but sim/commands wait).</summary>
@@ -146,46 +151,176 @@ namespace SofaRobotAI.AgentApi
                 _stateJsonCache = BuildStateJson();
                 _scenarioJsonCache = BuildScenarioJson();
                 _calibrationJsonCache = BuildCalibrationJson();
+                _cameraJsonCache = BuildCameraJson();
             }
 
             if (_shotRequested)
             {
                 _shotRequested = false;
-                byte[] png = CaptureScreenshot();
-                if (png != null)
+                string camId = _shotCameraId;
+                _shotCameraId = null;
+                if (camId == "screen")
                 {
-                    lock (_pngLock)
+                    StartCoroutine(CaptureScreenCoroutine()); // completes at end-of-frame
+                }
+                else
+                {
+                    Camera cam = string.IsNullOrEmpty(camId) || camId == "main"
+                        ? Camera.main
+                        : Core.CameraWall.Instance != null ? Core.CameraWall.Instance.Find(camId) : null;
+                    byte[] png = CaptureScreenshot(cam, _shotWidth, _shotHeight);
+                    if (png != null)
                     {
-                        _pngCache = png;
-                        _pngGeneration++;
+                        lock (_pngLock)
+                        {
+                            _pngCache = png;
+                            _pngGeneration++;
+                        }
                     }
                 }
             }
         }
 
-        /// <summary>Renders the main camera and encodes a PNG.</summary>
-        internal byte[] CaptureScreenshot()
+        /// <summary>Composite capture of the whole Game view (all PIP tiles +
+        /// HUD) - proof that the five-camera wall is actually displayed.</summary>
+        private System.Collections.IEnumerator CaptureScreenCoroutine()
         {
-            Camera cam = Camera.main;
+            yield return new WaitForEndOfFrame();
+            Texture2D tex = ScreenCapture.CaptureScreenshotAsTexture();
+            byte[] png = tex.EncodeToPNG();
+            UnityEngine.Object.Destroy(tex);
+            lock (_pngLock)
+            {
+                _pngCache = png;
+                _pngGeneration++;
+            }
+        }
+
+        /// <summary>Renders one camera at MAXIMUM sampling quality and encodes
+        /// a PNG: 2x supersampling + 8x MSAA into a high-resolution target,
+        /// GPU downsample to the requested size (bilinear at 2x = box filter),
+        /// then the deterministic Metal vertical-flip fix.</summary>
+        internal byte[] CaptureScreenshot(Camera cam, int width, int height)
+        {
             if (cam == null) return null;
 
-            var rt = new RenderTexture(ShotWidth, ShotHeight, 24);
+            width = Mathf.Clamp(width, ShotMinPx, ShotMaxPx);
+            height = Mathf.Clamp(height, ShotMinPx, ShotMaxPx);
+
+            int ss = 2;
+            while (ss > 1 && ((long)width * ss > 16384 || (long)height * ss > 16384)) ss--;
+
+            var rtHi = new RenderTexture(width * ss, height * ss, 24,
+                                         RenderTextureFormat.ARGB32)
+            { antiAliasing = 8 };
+
             var prev = cam.targetTexture;
-            cam.targetTexture = rt;
+            float prevAspect = cam.aspect;
+            cam.aspect = (float)width / height;
+            cam.targetTexture = rtHi;
             cam.Render();
             cam.targetTexture = prev;
+            cam.aspect = prevAspect;
+
+            RenderTexture rtFinal = rtHi;
+            if (ss > 1)
+            {
+                rtFinal = new RenderTexture(width, height, 0,
+                                            RenderTextureFormat.ARGB32);
+                Graphics.Blit(rtHi, rtFinal);
+            }
+
 
             var prevActive = RenderTexture.active;
-            RenderTexture.active = rt;
-            var tex = new Texture2D(ShotWidth, ShotHeight, TextureFormat.RGB24, false);
-            tex.ReadPixels(new Rect(0, 0, ShotWidth, ShotHeight), 0, 0);
+            RenderTexture.active = rtFinal;
+            var tex = new Texture2D(width, height, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
             tex.Apply();
             RenderTexture.active = prevActive;
+            // Deterministic CPU vertical flip: on Metal the RT rows are
+            // top-left origin while the PNG encoder expects bottom-up, so
+            // manual camera captures come out upside down without this.
+            var px = tex.GetPixels32();
+            for (int y = 0; y < height / 2; y++)
+            {
+                int a = y * width, b = (height - 1 - y) * width;
+                for (int x = 0; x < width; x++)
+                {
+                    Color32 t = px[a + x]; px[a + x] = px[b + x]; px[b + x] = t;
+                }
+            }
+            tex.SetPixels32(px);
+            tex.Apply();
+
             byte[] png = tex.EncodeToPNG();
-            rt.Release();
+            rtHi.Release();
+            if (rtFinal != rtHi) rtFinal.Release();
             UnityEngine.Object.Destroy(tex);
-            UnityEngine.Object.Destroy(rt);
+            UnityEngine.Object.Destroy(rtHi);
+            if (rtFinal != rtHi) UnityEngine.Object.Destroy(rtFinal);
             return png;
+        }
+
+
+        /// <summary>HTTP-thread entry: requests a capture from one of the
+        /// cameras (main / screen / front / back / left / right / top).</summary>
+        internal byte[] RequestScreenshot(string cameraId = null, int timeoutMs = 8000,
+                                          int width = 3840, int height = 2160)
+        {
+            int startGen;
+            lock (_pngLock) startGen = _pngGeneration;
+            _shotWidth = Mathf.Clamp(width, ShotMinPx, ShotMaxPx);
+            _shotHeight = Mathf.Clamp(height, ShotMinPx, ShotMaxPx);
+            _shotCameraId = cameraId;
+            _shotRequested = true;
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < timeoutMs)
+            {
+                System.Threading.Thread.Sleep(30);
+                lock (_pngLock)
+                    if (_pngGeneration > startGen && _pngCache != null)
+                        return _pngCache;
+            }
+            return null;
+        }
+
+        internal static bool IsValidCameraId(string id)
+        {
+            return string.IsNullOrEmpty(id) || id == "main" || id == "screen" ||
+                   id == "front" || id == "back" || id == "left" || id == "right" || id == "top";
+        }
+
+        internal string BuildCameraJson()
+        {
+            var list = new ApiCameraList { cameras = new List<ApiCamera>() };
+            var wall = Core.CameraWall.Instance;
+            if (wall != null)
+            {
+                foreach (var wc in wall.Cameras)
+                {
+                    var t = wc.camera.transform;
+                    list.cameras.Add(new ApiCamera
+                    {
+                        id = wc.id, label = wc.label,
+                        position = new[] { t.position.x, t.position.y, t.position.z },
+                        rotation = new[] { t.eulerAngles.x, t.eulerAngles.y, t.eulerAngles.z },
+                        viewport = new[] { wc.viewport.x, wc.viewport.y, wc.viewport.width, wc.viewport.height },
+                    });
+                }
+            }
+            else if (Camera.main != null)
+            {
+                var t = Camera.main.transform;
+                list.cameras.Add(new ApiCamera
+                {
+                    id = "main", label = "主视角 MAIN",
+                    position = new[] { t.position.x, t.position.y, t.position.z },
+                    rotation = new[] { t.eulerAngles.x, t.eulerAngles.y, t.eulerAngles.z },
+                    viewport = new[] { 0f, 0f, 1f, 1f },
+                });
+            }
+            return JsonUtility.ToJson(list);
         }
 
         /// <summary>Main-loop liveness probe, safe to call from the HTTP
@@ -204,24 +339,6 @@ namespace SofaRobotAI.AgentApi
             return staleSeconds > StaleAfterSeconds;
         }
 
-        /// <summary>HTTP-thread entry: requests a fresh capture and waits for
-        /// it (bounded); returns the PNG bytes or null on timeout.</summary>
-        internal byte[] RequestScreenshot(int timeoutMs = 4000)
-        {
-            int startGen;
-            lock (_pngLock) startGen = _pngGeneration;
-            _shotRequested = true;
-
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            while (sw.ElapsedMilliseconds < timeoutMs)
-            {
-                System.Threading.Thread.Sleep(30);
-                lock (_pngLock)
-                    if (_pngGeneration > startGen && _pngCache != null)
-                        return _pngCache;
-            }
-            return null;
-        }
 
         // ------------------------------------------------------------------ //
         //  Snapshot (read side)
@@ -230,6 +347,7 @@ namespace SofaRobotAI.AgentApi
         public string CurrentStateJson => _stateJsonCache;
         internal string CurrentCalibrationJson => _calibrationJsonCache;
         public string CurrentScenarioJson => _scenarioJsonCache;
+        public string CurrentCameraJson => _cameraJsonCache;
 
         internal string BuildStateJson()
         {
@@ -250,6 +368,8 @@ namespace SofaRobotAI.AgentApi
                 sofaTime = _mgr.ActiveBackend is Backend.SofaUnityBackend sofa2 ? sofa2.SimulationTime : -1f,
                 sofaStepMs = _mgr.ActiveBackend is Backend.SofaUnityBackend sofa3 ? sofa3.CurrentStepElapsedMs : -1L,
                 sofaSteps = _mgr.ActiveBackend is Backend.SofaUnityBackend sofa4 ? sofa4.CompletedSteps : -1L,
+                liverDelta = Surgery.LiverDeformationSync.LastInstance != null
+                    ? Surgery.LiverDeformationSync.LastInstance.MaxAbsDelta : -1f,
                 arms = new List<ApiArm>(),
                 tasks = new List<ApiTask>(),
             };
@@ -474,6 +594,7 @@ namespace SofaRobotAI.AgentApi
             public int stitchesDone, stitchesTotal;
             public float sofaFps, sofaTime;
             public long sofaStepMs, sofaSteps;
+            public float liverDelta;
             public List<ApiArm> arms;
             public List<ApiTask> tasks;
             public ApiTissue tissue;
@@ -537,6 +658,14 @@ namespace SofaRobotAI.AgentApi
 
         [Serializable] public class ApiScenarioList { public List<ApiScenario> scenarios; }
 
+        [Serializable] public class ApiCamera
+        {
+            public string id, label;
+            public float[] position, rotation, viewport;
+        }
+
+        [Serializable] public class ApiCameraList { public List<ApiCamera> cameras; }
+
         [Serializable] public class ApiCommand
         {
             public string action, id;
@@ -592,7 +721,8 @@ namespace SofaRobotAI.AgentApi
                 }
                 catch (Exception e)
                 {
-                    Respond(ctx, 500, $"{{\"error\":\"{e.Message}\"}}");
+                    try { Respond(ctx, 500, $"{{\"error\":\"{e.Message}\"}}"); }
+                    catch { /* response already (partially) sent or client gone */ }
                 }
             }
         }
@@ -613,20 +743,35 @@ namespace SofaRobotAI.AgentApi
                     case "/api/scenarios":
                         Respond(ctx, 200, _api.CurrentScenarioJson);
                         return;
+                    case "/api/cameras":
+                        Respond(ctx, 200, _api.CurrentCameraJson);
+                        return;
                     case "/api/calibration":
                         Respond(ctx, 200, _api.CurrentCalibrationJson);
                         return;
                     case "/api/screenshot":
                     {
                         if (StaleResponse(ctx, includeFrame: true)) return;
-                        byte[] png = _api.RequestScreenshot();
+                        string camId = ctx.Request.QueryString["camera"];
+                        if (!SurgicalAgentApi.IsValidCameraId(camId))
+                        {
+                            Respond(ctx, 400, "{\"error\":\"unknown camera id\",\"valid\":" +
+                                             "[\"main\",\"screen\",\"front\",\"back\",\"left\",\"right\",\"top\"]}");
+                            return;
+                        }
+                        var (w, h) = ResolveShotSize(ctx.Request.QueryString);
+                        byte[] png = _api.RequestScreenshot(camId, 8000, w, h);
                         if (png == null) { Respond(ctx, 503, "{\"error\":\"capture timeout\"}"); return; }
                         ctx.Response.StatusCode = 200;
                         ctx.Response.ContentType = "image/png";
                         ctx.Response.Headers["Cache-Control"] = "no-store";
                         ctx.Response.ContentLength64 = png.Length;
-                        ctx.Response.OutputStream.Write(png, 0, png.Length);
-                        ctx.Response.OutputStream.Close();
+                        try
+                        {
+                            ctx.Response.OutputStream.Write(png, 0, png.Length);
+                            ctx.Response.OutputStream.Close();
+                        }
+                        catch { /* client disconnected mid-transfer */ }
                         return;
                     }
                 }
@@ -680,6 +825,27 @@ namespace SofaRobotAI.AgentApi
             Respond(ctx, 404, "{\"error\":\"not found\"}");
         }
 
+        /// <summary>Screenshot resolution: size presets (sd/hd/fhd/2k/4k/8k/max)
+        /// or explicit width/height. Default = 4K. Camera renders go to an
+        /// off-screen RT so resolution is not limited by the window size;
+        /// "screen" always captures at the display's native resolution.</summary>
+        private static (int w, int h) ResolveShotSize(System.Collections.Specialized.NameValueCollection qs)
+        {
+            switch ((qs["size"] ?? "").ToLowerInvariant())
+            {
+                case "sd": return (960, 540);
+                case "hd": return (1280, 720);
+                case "fhd": return (1920, 1080);
+                case "2k": return (2560, 1440);
+                case "4k": return (3840, 2160);
+                case "8k":
+                case "max": return (7680, 4320);
+            }
+            if (int.TryParse(qs["width"], out int w) && int.TryParse(qs["height"], out int h))
+                return (w, h);
+            return (3840, 2160); // default 4K
+        }
+
         /// <summary>503 responder for a stalled main loop; returns true when
         /// the request was answered (caller must return immediately).</summary>
         private bool StaleResponse(HttpListenerContext ctx, bool includeFrame, bool okFalse = false)
@@ -697,12 +863,20 @@ namespace SofaRobotAI.AgentApi
 
         private static void Respond(HttpListenerContext ctx, int code, string json)
         {
-            byte[] bytes = Encoding.UTF8.GetBytes(json);
-            ctx.Response.StatusCode = code;
-            ctx.Response.ContentType = "application/json";
-            ctx.Response.ContentLength64 = bytes.Length;
-            ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
-            ctx.Response.OutputStream.Close();
+            // A client that disconnects mid-response (curl timeout) makes the
+            // write throw AFTER headers were sent; an unguarded second
+            // Respond from the loop's catch previously killed the listener
+            // thread with "Cannot be changed after headers are sent".
+            try
+            {
+                byte[] bytes = Encoding.UTF8.GetBytes(json);
+                ctx.Response.StatusCode = code;
+                ctx.Response.ContentType = "application/json";
+                ctx.Response.ContentLength64 = bytes.Length;
+                ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
+                ctx.Response.OutputStream.Close();
+            }
+            catch { /* client gone - nothing to do */ }
         }
     }
 }

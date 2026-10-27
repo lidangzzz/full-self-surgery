@@ -18,6 +18,12 @@ namespace SofaRobotAI.Surgery
     {
         public static TissueDeformationSync LastInstance { get; private set; }
 
+        /// <summary>肝样式总开关：SOFA 长方体网格经平滑形变呈现为一块肝
+        /// （前后缘圆化+右叶楔形+中央隆起），材质换为肝红棕色，并附胆囊
+        /// 与肝门细节。中央手术走廊恒等，耦合与场景几何不受影响。</summary>
+        public static bool UseLiverStyle = true;
+        private static readonly Color LiverBase = new Color(0.46f, 0.17f, 0.14f);
+
         /// <summary>Largest single-vertex displacement (m) seen since start -
         /// proves the readback pipeline is live (gravity sag alone trips it).</summary>
         public float MaxAbsDelta { get; private set; }
@@ -40,7 +46,8 @@ namespace SofaRobotAI.Surgery
         /// <summary>Restyles the live tissue (scenario switching).</summary>
         public void SetColor(Color c)
         {
-            if (_material != null) _material.color = c;
+            if (_material != null)
+                _material.color = UseLiverStyle ? Color.Lerp(LiverBase, c, 0.18f) : c;
         }
 
         public static TissueDeformationSync Create(Transform parent, NeedleTissueCoupling coupling,
@@ -71,9 +78,14 @@ namespace SofaRobotAI.Surgery
             _mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
             gameObject.AddComponent<MeshFilter>().sharedMesh = _mesh;
             var renderer = gameObject.AddComponent<MeshRenderer>();
-            _material = new Material(Shader.Find("Standard")) { color = color };
-            _material.SetFloat("_Glossiness", 0.28f);
+            _material = new Material(Shader.Find("Standard"))
+            {
+                color = UseLiverStyle ? Color.Lerp(LiverBase, color, 0.18f) : color,
+            };
+            _material.SetFloat("_Glossiness", 0.12f); // 柔和组织质感，干净直观
             renderer.sharedMaterial = _material;
+
+            if (UseLiverStyle) BuildLiverDetails();
 
             if (!coupling.PullTissue(_sofaBuffer))
             {
@@ -157,6 +169,33 @@ namespace SofaRobotAI.Surgery
         {
             for (int i = 0; i < dst.Length; i++)
                 dst[i] = new Vector3(-sofa[i * 3], sofa[i * 3 + 1], sofa[i * 3 + 2]);
+            if (UseLiverStyle)
+                for (int i = 0; i < dst.Length; i++)
+                    dst[i] = Surgery.Scenarios.SurgeryKit.LiverWarp(dst[i]);
+        }
+
+        /// <summary>肝的解剖细节：胆囊（前缘右侧橄榄绿椭球）与肝门暗带
+        /// （前缘左侧，肝血管入肝处）。静态装饰，不参与 FEM。</summary>
+        private void BuildLiverDetails()
+        {
+            var gb = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            Destroy(gb.GetComponent<Collider>());
+            gb.name = "Gallbladder";
+            gb.transform.SetParent(transform, false);
+            gb.transform.position = new Vector3(0.34f, 0.547f, 0.615f);
+            gb.transform.localScale = new Vector3(0.085f, 0.050f, 0.060f);
+            var gbMat = new Material(Shader.Find("Standard")) { color = new Color(0.36f, 0.45f, 0.18f) };
+            gbMat.SetFloat("_Glossiness", 0.30f);
+            gb.GetComponent<Renderer>().sharedMaterial = gbMat;
+
+            var porta = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Destroy(porta.GetComponent<Collider>());
+            porta.name = "PortaHepatis";
+            porta.transform.SetParent(transform, false);
+            porta.transform.position = new Vector3(-0.40f, 0.536f, 0.565f);
+            porta.transform.localScale = new Vector3(0.34f, 0.006f, 0.030f);
+            porta.GetComponent<Renderer>().sharedMaterial =
+                new Material(Shader.Find("Standard")) { color = new Color(0.30f, 0.11f, 0.10f) };
         }
 
         private void ApplyToMesh()

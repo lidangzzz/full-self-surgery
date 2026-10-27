@@ -23,6 +23,8 @@ namespace SofaRobotAI.Surgery
         public const string NeedleDofName = "NeedleTipDOFs";
         public const string CardiacDofName = "CardiacPusherDOFs";
         public const string TissueDofName = "TissueDOFs";
+        public const string BrainDofName = "BrainDOFs";
+        public const string LiverDofName = "LiverDOFs";
 
         private readonly IntPtr _simu;
         private readonly Transform _sofaRoot; // SofaContext transform (Unity<->SOFA frame)
@@ -74,10 +76,22 @@ namespace SofaRobotAI.Surgery
         /// (SOFA coordinates, x needs negating to get Unity world).</summary>
         public bool PullTissue(float[] dst)
         {
-            int res = SofaBaseMeshAPI.sofaMeshAPI_getVertices(_simu, TissueDofName, dst);
+            return Pull(TissueDofName, dst);
+        }
+
+        /// <summary>Reads the SOFA brain FEM vertices (SOFA coordinates).</summary>
+        public bool PullBrain(float[] dst) => Pull(BrainDofName, dst);
+
+        /// <summary>Reads the SOFA liver FEM vertices (SOFA coordinates).</summary>
+        public bool PullLiver(float[] dst) => Pull(LiverDofName, dst);
+
+        /// <summary>Generic vertex-buffer readback by DOF name.</summary>
+        public bool Pull(string dofName, float[] dst)
+        {
+            int res = SofaBaseMeshAPI.sofaMeshAPI_getVertices(_simu, dofName, dst);
             LastPullOk = res >= 0;
             if (!LastPullOk)
-                Debug.LogWarning($"[NeedleTissueCoupling] getVertices({TissueDofName}) returned {res}");
+                Debug.LogWarning($"[NeedleTissueCoupling] getVertices({dofName}) returned {res}");
             return LastPullOk;
         }
     }

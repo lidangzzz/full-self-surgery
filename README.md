@@ -1,209 +1,215 @@
-# SofaRobotAI — SofaUnity 多机械臂 AI Agent 操作场景
+# SofaRobotAI — Multi-Arm AI Agent Surgical Simulation
 
-基于 [SofaUnity](https://github.com/InfinyTech3D/SofaUnity)（SOFA 物理引擎的 Unity 集成）初始化的 Unity 3D 项目：
-**N 台多自由度机械臂，每台由一个可插拔的 AI Agent 大脑控制**，在程序化生成的初始化场景中自主完成抓取-搬运-投放任务，并支持**手术缝合演示：3 个 SOFA 软体器官 + 血管，机械臂持针缝线关闭切口**。
+A Unity 3D project built on [SofaUnity](https://github.com/InfinyTech3D/SofaUnity) (SOFA physics engine integration): **N multi-DOF surgical robot arms, each controlled by a pluggable AI agent brain**, performing autonomous pick-and-place and **surgical suturing demonstrations** — needle-driven wound closure on SOFA soft-tissue FEM organs with real-time deformation.
 
 ```
-打开即玩（macOS / Windows / Linux）:  Unity 6000.6 LTS + Unity PhysX 后端
-完整 SOFA 协同仿真:                   macOS arm64（已验证）/ Windows x64
+Quick start (macOS / Windows / Linux):  Unity 6000.6 LTS + Unity PhysX backend
+Full SOFA co-simulation:                macOS arm64 (verified) / Windows x64
 ```
 
-## 场景内容
+## What's Inside
 
-运行 `Assets/Scenes/MultiArmAgentScene.unity` 并按 Play。**65 个可随时切换的手术场景**
-（3 个手工旗舰 + 62 个参数化术式目录条目，覆盖 100 条术式目录的全部 10 个科室）：
+Open `Assets/Scenes/MultiArmAgentScene.unity` and press Play. **69 surgical scenarios** (7 handcrafted flagships + 62 parameterized catalogue entries covering all 10 surgical departments from a 100-procedure catalogue):
 
-**切换方式**：按键 `1-9` 直达前九个 / `PgUp` `PgDn` 翻页 / 左上角前后按钮 / Agent API。
-每个场景携带：组织配色、血管网密度、伤口基元（管状吻合 `Tube` / 表面切口 `Surface`）、
-是否搏动（SOFA 心跳推压球）、机械臂数量与自由度（全部 4-5 DOF）、针脚数与术式要点。
+**Switching**: keys `1-9` for direct access / `PgUp` `PgDn` to browse / on-screen buttons / Agent API.
 
-三个手工旗舰：
+### Flagship Scenarios
 
-| 场景 | 术式目录映射 | 机械臂 | 特色 |
+| Scenario | Procedure | Arms | Highlights |
 |---|---|---|---|
-| `vessel` 显微血管吻合 | #3/#21-22/#30 | 3 × 5 DOF 轮流缝合 | 密布血管网组织垫，主干血管断裂 9 针关闭 |
-| `heart` 不停跳冠脉搭桥 | #34 | 2 × 5 DOF（1缝+1稳） | SOFA 心跳推压球持续搏动表面缝合 |
-| `tendon` 屈肌腱端端修复 | #25 | 2 × 4 DOF | 肌腱断端环形 4 针吻合 |
+| `vessel` Microvascular anastomosis | #3/#21-22/#30 | 3 × 5 DOF | Dense vascular network, 9-stitch vessel closure |
+| `heart` Beating-heart CABG | #34 | 2 × 5 DOF | SOFA cardiac pusher, suturing on pulsating surface |
+| `tendon` Flexor tendon repair | #25 | 2 × 4 DOF | Circumferential 4-stitch tendon anastomosis |
+| `octo` Eight-arm replantation | #22 | 8 × 5 DOF | Full API orchestration of 8 arms, 12 stitches |
+| `tear` Vessel incision repair | #1/#17 | 2 × 4 DOF | Three-segment tool arms (tweezers + needle holder) |
+| `brain` Brain microsurgery | #1/#10 | 2 × 4 DOF | Life-size SOFA FEM brain (35k-vertex anatomical surface) |
+| `liver` Liver tumor surgery | #56/#57 | 2 × 4 DOF | Official SofaUnity liver model + HCC tumor + vessel suturing |
 
-62 个目录场景 `s01`–`s98`（`ProcedureCatalog.cs`）按科室分布：神经外科 10、眼科 6、
-手外/显微 9、心脏大血管 9、胸外/气道 8、肝胆胰移植 7、胃肠盆腔 4、泌尿妇科 5、
-骨科耳鼻喉 2、介入内镜 2 —— 均为同一套 SOFA FEM 组织 + 针刺力耦合 + 缝合执行器的
-参数化实例（`GET /api/scenarios` 返回全部 65 条及各自术式映射）。
+The 62 catalogue scenarios (`s01`–`s98` in `ProcedureCatalog.cs`) span: Neurosurgery (10), Ophthalmology (6), Hand/Microsurgery (9), Cardiac (9), Thoracic (8), HPB/Transplant (7), GI/Pelvic (4), Urology/Gynecology (5), Orthopedics/ENT (2), Interventional/Endoscopy (2) — all parameterized instances of the same SOFA FEM tissue + needle-force coupling + suture executor machinery.
 
-组织为 SOFA FEM 软体（真实形变 + 针尖力耦合），`P` 键或 API 可暂停/恢复（同时暂停 SOFA 步进）。
-**搬运模式（`suturingMode = false`）**：随机工件抓放演示。
+## Agent HTTP API
 
-## Agent API（外部 AI Agent 控制）
-
-运行时自动开启本地 HTTP JSON API（默认 `127.0.0.1:8765`，
-`MultiArmAgentManager.agentApiPort` 可改）：
-
-```
-GET  /api/state      # 全量快照：场景、每臂(关节角/TCP/速度/角色/持针)、任务进度、组织形变
-GET  /api/scenarios  # 场景目录（术式映射、臂配置）
-POST /api/scenario   {"id":"vessel|heart|tendon"}     # 切换场景（机械臂随之重配）
-POST /api/control    {"action":"pause"|"resume"}       # 暂停/恢复（含 SOFA 步进）
-POST /api/command    {"action":"MoveTcp|MoveTip|Gripper|Home|Resume",
-                      "arm":0, "target":[x,y,z], "open":0.5}   # 直接操控单臂
-```
-
-命令经线程安全队列在主线程执行；`MoveTip` 以针尖为目标（带针时）。
-进程内同等接口：`SurgicalAgentApi.BuildStateJson()/EnqueueCommand()`。
-快速验证：`curl http://127.0.0.1:8765/api/state | python3 -m json.tool`。
-
-## 架构
-
-```
-MultiArmAgentManager            场景唯一入口：初始化后端、生成 N 臂、任务调度、HUD
- ├── IRobotPhysicsBackend       物理后端抽象（Agent 层只依赖此接口）
- │    ├── SofaUnityBackend      SofaContext 加载 robot_cell.scn，
- │    │                         SOFA 仿真软体器官/血管（macOS arm64 已验证 / Windows）
- │    └── UnityPhysicsBackend   任意平台: ArticulationBody + PhysX（默认，零依赖）
- ├── ArmAgent ×N                单臂具身智能体：决策节奏 + 技能执行状态机
- │    ├── IAgentBrain           可插拔大脑
- │    │    ├── HeuristicBrain   雅可比转置伺服 + 抓放策略（零依赖，实时）
- │    │    └── LlmAgentBrain    OpenAI 兼容 /chat/completions 高层规划
- │    └── SutureExecutor        缝合状态机（持针任务时接管，见下）
- ├── RobotArmController         单臂控制 API：ServoToward()（阻尼最小二乘）、
- │                             夹爪、FixedJoint 物理抓取
- ├── RobotArmBuilder            程序化构建多自由度运动链（ArmSpec 4/6/7 DOF 预设）
- ├── TaskSystem                 RobotTask 基类 + ManipulationTask + 贪心分配器
- └── Surgery/                   手术缝合子系统
-      ├── OrganCellBuilder      手术台 + 3 器官/血管/切口/针点（与 .scn 几何同步）
-      ├── NeedleTool            程序化弯针（半圆管网格）+ 缝线 LineRenderer
-      ├── SutureExecutor        入针→潜行→出针→拉线→收拢打结 FSM
-      ├── SutureTask/StitchPoint 缝合任务与针点（入针/出针两侧）
-      └── SutureVisuals         打结球、收拢带、切口收窄、缝线路径
-```
-
-缝合任务的技能执行由 `SutureExecutor` 接管（不走大脑轮询）：它把针尖目标
-位置换算为 TCP 伺服目标，复用 `RobotArmController.ServoToward()`，每针完成后
-更新缝线锚点与切口视觉。SOFA 侧的器官/血管是真实 FEM 体；针穿刺交互为
-近似实现（公开 SofaUnity API 无组织切割/穿刺入口点，进阶需其私有模块或
-SofaCarving 插件扩展）。
-
-## 快速开始（任意平台，2 分钟）
-
-1. 用 **Unity 6000.6 LTS**（本机已装 `6000.6.7f1-arm64`；2021.3/2022.3 亦可打开，
-   注意本机 `/Applications/Unity/Hub/Editor/2022.3.47f1` 为残缺安装，需先补装）
-2. 首次打开会编译 `Assets/SofaUnity`（官方插件，纯 C# 部分全平台可编译）
-3. 打开 `Assets/Scenes/MultiArmAgentScene.unity`，按 **Play**
-4. 观察 HUD：每台臂依次 `MoveTo → Grasp → 搬运 → Release → 投放`，自动循环
-
-> macOS 提示：控制台会出现一条 SofaVerseAPI 仅 Windows 的警告，
-> 属预期行为——后端自动回退 Unity PhysX，场景完全可玩。
-
-在编辑器菜单 **SofaRobotAI → Build Multi-Arm AI Scene** 可随时重建该场景。
-
-## 启用 SOFA 协同仿真（macOS arm64 / Windows x64）
-
-SofaUnity 的原生库（SofaVerseAPI）发布渠道：
-
-- **macOS (Apple Silicon)**：官方 Release `SofaUnity_v26.06.00` 附带
-  `SOFA_MacOS_v26.06.zip`（223 个 dylib，SofaPhysicsAPI 25.12 构建）
-- **Windows x64**：Release 的 `SOFA_v24.12-dll.zip.zip` 或内置 DLL 的 unitypackage
-
-**macOS 步骤**（本机已验证可跑通）：
+A local HTTP JSON API starts automatically during Play mode (default `127.0.0.1:8765`):
 
 ```bash
-# 1. 系统依赖（官方 dylib 链接了 homebrew 路径，但 zip 里没带）
-brew install glfw glew tinyxml2
+# Full state snapshot (arms, joints, TCP, tasks, tissue deformation)
+curl http://127.0.0.1:8765/api/state | python3 -m json.tool
 
-# 2. 一键安装：克隆 SofaUnity + 打兼容补丁 + 下载并安装原生库
-./setup-sofaunity.sh
+# Scenario catalogue (69 entries)
+curl http://127.0.0.1:8765/api/scenarios | python3 -c "import json,sys;print(len(json.load(sys.stdin)['scenarios']),'scenarios')"
+
+# Switch scenario (arms reconfigure automatically)
+curl -X POST http://127.0.0.1:8765/api/scenario -H 'Content-Type: application/json' -d '{"id":"heart"}'
+
+# Direct arm control (MoveTip = needle-tip target)
+curl -X POST http://127.0.0.1:8765/api/command -H 'Content-Type: application/json' \
+     -d '{"action":"MoveTip","arm":0,"target":[0.0,0.60,0.90]}'
+
+# High-quality screenshot from any of 7 cameras (main + 5 wall + screen composite)
+curl "http://127.0.0.1:8765/api/screenshot?camera=top&size=8k" -o top.png
 ```
 
-3. Unity 中打开场景，`MultiArmAgentManager` 的 **backend** 改为 **SofaUnity**，Play
-4. 验证：Console 出现 `[SofaUnity] loading sofa.ini...`（由原生侧打印），
-   HUD 显示 `backend: SofaUnity (SOFA co-simulation)`，
-   `SofaUnity_Context` 节点加载 `Assets/StreamingAssets/SOFA/robot_cell.scn`
-   （FEM 软体立方体场景）；若原生库不可用会自动回退 PhysX 并给出原因
+### API Endpoints
 
-Windows 步骤相同，只是把 DLL 解压到
-`Assets/SofaUnity/Core/Plugins/Native/Windows/x64/`。
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/state` | Full snapshot: scenario, arms (joints/TCP/speed/role/needle), task progress, tissue deformation, solver health |
+| `GET` | `/api/scenarios` | 69-entry scenario catalogue with procedure mapping |
+| `GET` | `/api/calibration` | Full per-arm geometry/drive/joint calibration |
+| `GET` | `/api/cameras` | Camera list with positions and viewport rects |
+| `GET` | `/api/screenshot` | PNG capture from any camera (up to 8K, 2× supersampled + 8× MSAA) |
+| `POST` | `/api/scenario` | `{"id":"vessel"}` — switch scenario |
+| `POST` | `/api/command` | `{"action":"MoveTcp|MoveTip|Gripper|Home|Resume|Cinch","arm":0,"target":[x,y,z]}` |
+| `POST` | `/api/control` | `{"action":"pause"|"resume"}` — global pause/resume |
 
-**版本配对说明**：macOS zip 内的原生库是 25.12 ABI，比 git master 的 C# 绑定旧——
-有 9 个入口点缺失（version、GUI init、场景图查询等），兼容补丁里已做惰性 shim
-（缺失时返回安全值，SOFA 场景加载与步进不受影响）。
-原生库还附带 `libArticulatedSystemPlugin`（SOFA 关节机器人插件），
-后续把机械臂关节求解迁到 SOFA 侧可用它扩展 `SofaUnityBackend`。
+**Stall detection**: if the Unity main loop stalls >3s, the API returns `503 {"error":"simulation main loop stalled","staleSeconds":...}` instead of serving stale data.
 
-## 配置项（MultiArmAgentManager Inspector）
+### Screenshot Quality
 
-| 字段 | 说明 |
+All single-camera captures use **2× supersampling + 8× MSAA** with GPU box-filter downsampling:
+- Default: 4K (3840×2160)
+- `size=8k`: 7680×4320
+- `size=sd`: 960×540 (fast polling)
+- `width`/`height`: custom (320–7680)
+- `camera=screen`: native-resolution full-screen composite (6-grid video wall)
+
+## Architecture
+
+```
+MultiArmAgentManager            Single entry point: backend init, N-arm spawn, task scheduling, HUD
+ ├── IRobotPhysicsBackend       Physics backend abstraction
+ │    ├── SofaUnityBackend      SofaContext loads .scn, native SOFA stepping on dedicated thread
+ │    └── UnityPhysicsBackend   Any platform: ArticulationBody + PhysX (default, zero deps)
+ ├── ArmAgent ×N                Per-arm embodied agent: decision cadence + skill execution
+ │    ├── IAgentBrain           Pluggable brain
+ │    │    ├── HeuristicBrain   DLS-IK servo + grasp/place strategy (offline, real-time)
+ │    │    └── LlmAgentBrain    OpenAI-compatible /chat/completions high-level planning
+ │    └── SutureExecutor        Stitching FSM: approach→pierce→through→pull→cinch
+ ├── RobotArmController         Per-arm control: DLS-IK ServoToward, gripper, physics grasp
+ ├── RobotArmBuilder            Procedural multi-DOF kinematic chain (3-7 DOF presets)
+ ├── CameraWall                 6-grid video wall: main + front/back/left/right/top cameras
+ └── Surgery/                   Surgical subsystem
+      ├── OrganCellBuilder      Operating table + organs/vessels/incisions/stitch points
+      ├── NeedleTool            Procedural curved needle + thread LineRenderer
+      ├── SutureExecutor        Stitch FSM (suspends during API control)
+      ├── TissueDeformationSync Live SOFA FEM vertex mirror with liver warp
+      ├── BrainDeformationSync  35k-vertex anatomical brain surface skinned to SOFA FEM
+      ├── LiverDeformationSync  Official SofaUnity liver model + tumor, skinned to FEM
+      └── SutureVisuals         Knots, cinch bands, shrinking blood pool, thread path
+```
+
+### Key Technical Features
+
+| Feature | Detail |
 |---|---|
-| armCount / dofPerArm | N 台机械臂（1–8），每台 4/6/7 自由度 |
-| brainType | `Heuristic`（离线）或 `Llm`（LLM 高层规划） |
-| llmEndpoint / llmModel | 任意 OpenAI 兼容接口（vLLM、Ollama、DeepSeek 等） |
-| llmApiKey | 留空则读环境变量 `SOFAROBOT_LLM_API_KEY` |
-| payloadCount / payloadArea | 工件数量与生成区域 |
-| dropBinsZ / dropBinRadius | 每臂料箱位置与判定半径 |
-| backend | `UnityPhysX` 或 `SofaUnity`（不可用时自动回退） |
+| **DLS-IK Servo** | Damped least-squares inverse kinematics (not Jacobian-transpose): 2.2mm convergence, no dead zone, Cartesian straight-line trajectory |
+| **Dedicated SOFA Thread** | Native solver runs on separate thread; Unity main loop immune to solver stalls |
+| **Dual-level Health** | Main-loop heartbeat + solver FPS both exposed via `/api/state` |
+| **Safety Protocol** | Five-gate micro-step suturing: step size, vessel distance, contact zone, tissue tension, settle verification |
+| **SOFA Brain FEM** | Life-size cerebrum: 5,280-node hexahedral FEM (E=6kPa, ν=0.40), 35k-vertex anatomical render surface with medial fissure, gyri/sulci, Sylvian fissure, cerebellum, brainstem |
+| **Official Liver Model** | SofaUnity's own `liver.msh` (181 nodes/596 tets) with official FEM parameters + `liver3-HD.obj` visual surface |
+| **Supersampled Screenshots** | 2× supersample + 8× MSAA + GPU box filter: anti-aliased at any resolution |
 
-LLM 大脑的动作协议（高层规划 → 底层伺服执行）：
+## Catalogue Scenarios (62 entries)
 
-```json
-{"skill": "MoveTo|Grasp|Release|Home|Idle", "target": [x, y, z], "reason": "short"}
-```
+All parameterized from the same surgical machinery:
 
-## 命令行重建场景与冒烟测试
+| Dept | Count | Representative |
+|---|---|---|
+| Neurosurgery | 10 | s01 aneurysm clipping, s03 STA-MCA bypass |
+| Ophthalmology | 6 | s14 retinal detachment, s17 open-globe repair |
+| Hand/Microsurgery | 9 | s21 fingertip replantation, s30 lymphatic-venous anastomosis |
+| Cardiac Surgery | 9 | s31 mitral valve repair, s37 arterial switch |
+| Thoracic | 8 | s41 bronchial sleeve, s49 lung transplant |
+| HPB/Transplant | 7 | s51 pancreaticojejunostomy, s57 pediatric liver transplant |
+| GI/Pelvic | 4 | s61 low anterior resection |
+| Urology/Gynecology | 5 | s73 kidney transplant |
+| Orthopedics/ENT | 2 | s86 rotator cuff repair |
+| Interventional | 2 | s97 ESD, s98 POEM |
+
+## Setup
+
+### Quick Start (Unity PhysX only, no SOFA)
 
 ```bash
-# 重建场景
-Unity -batchmode -nographics -quit -projectPath <本项目路径> \
-  -executeMethod SofaRobotAI.SceneSetup.SceneBuilder.BuildFromCommandLine
+git clone <this-repo>
+# Open in Unity 6000.6 LTS → Assets/Scenes/MultiArmAgentScene.unity → Play
+```
 
-# headless 进入 Play 模式跑 15 秒，验证 N 臂生成/后端初始化/任务执行（退出码 0=通过）
-Unity -batchmode -nographics -projectPath <本项目路径> \
+### Full Setup (with SofaUnity native SOFA)
+
+```bash
+git clone <this-repo>
+cd full-self-surgery
+./setup-sofaunity.sh   # clones SofaUnity (~1.2GB) + applies Unity 6 compat patch
+# Open in Unity → Play
+```
+
+### Headless Smoke Test
+
+```bash
+Unity -batchmode -nographics -projectPath . \
   -executeMethod SofaRobotAI.SceneSetup.PlayModeSmokeTest.RunFromCommandLine
-
-# 同上，但强制 SofaUnity 后端且要求原生 SOFA 真的初始化成功（不回退）
-Unity -batchmode -nographics -projectPath <本项目路径> \
-  -executeMethod SofaRobotAI.SceneSetup.PlayModeSmokeTest.RunSofaBackendFromCommandLine
 ```
 
-编辑器菜单：**SofaRobotAI → Build Multi-Arm AI Scene** / **Run Play-Mode Smoke Test**。
+### Detached GUI Launch (for API-driven development)
 
-## 对 SofaUnity 上游代码的本地补丁
+```bash
+./tools/launch_unity_detached.sh   # starts editor + play mode + API server
+```
 
-为使官方代码（面向 Unity 2020/2021 + Windows）在 Unity 6 下编译，以下文件做了最小修改；
-升级 SofaUnity 时需要重新套用：
+## Tools
 
-| 文件 | 修改 |
+| Script | Purpose |
 |---|---|
-| `Core/Plugins/SofaUnityAPI/SofaUtils.cs`、`Core/Scripts/Core/System/PluginManager.cs` | 删除未使用的 `using Unity.VisualScripting;` |
-| `Core/Scripts/Modules/CuttingTools/CuttingManager.cs`、`Core/Scripts/Modules/Objects/SofaSphereCollisionObject.cs` 等 | 移除误加在属性上的 `[SerializeField]`（Unity 6 编译器报错） |
-| `Core/Plugins/SofaUnityAPI/SofaContextAPI.cs` | 为 25.12 原生库缺失的 9 个入口点加惰性 shim（EntryPointNotFoundException → 安全返回值），version 为空时回退 APIName |
-| `Packages/manifest.json` | 新增 `com.unity.inputsystem`（SDataSaveLoad.cs 依赖） |
+| `tools/micro_suture.py` | Five-gate safety protocol: step-by-step vessel suturing with screenshot verification |
+| `tools/eight_arm_api_demo.py` | End-to-end 8-arm surgery via all API surfaces (17 checks) |
+| `tools/launch_unity_detached.sh` | Detached editor launch (survives terminal exit) |
+| `tools/gen_brain.py` | Brain FEM lattice generator → brain.vtk |
+| `tools/gen_brain_surface.py` | High-res brain surface + skinning bindings |
+| `tools/gen_liver_sofa.py` | Official liver model transform + bindings |
 
-## 已知事项
+## Documentation
 
-- `SofaUnity_modules` 子模块在 GitHub 上不存在（私有/已删除），
-  克隆时会失败——不影响 Core 功能，属上游仓库问题
-- macOS 原生库缺 `sofaPhysicsAPI_version` 等 9 个入口点（25.12 ABI 与
-  master C# 的代差），已 shim；SOFA 场景加载/步进/重力设置均正常，
-  Unity 侧 SOFA 节点图镜像（DAGNode 查询）在该版本下退化为空
-- SofaUnity 官方测试环境为 Unity 2020.3/2021.3 + Windows；本项目在
-  macOS + Unity 6000.6.7f1 (arm64) 下验证了全部 C# 编译、场景生成、
-  Play 模式多臂任务执行、以及 **SofaUnity 原生后端加载运行**
-- 场景、机械臂、任务全部程序化生成，`MultiArmAgentScene.unity` 只包含
-  相机、灯光、地板和 Manager，重新生成无副作用
+| Document | Contents |
+|---|---|
+| [`docs/AGENT_API.md`](docs/AGENT_API.md) | Complete HTTP API reference (all endpoints, parameters, examples) |
+| [`docs/SCENARIOS.md`](docs/SCENARIOS.md) | 69-scenario catalogue with arm configs and technique notes |
+| [`docs/API_MICRO_SUTURE_REPORT.md`](docs/API_MICRO_SUTURE_REPORT.md) | DLS-IK micro-step suturing results (4/4, 0 violations) |
+| [`docs/EIGHT_ARM_API_DEMO_REPORT.md`](docs/EIGHT_ARM_API_DEMO_REPORT.md) | 8-arm full-API surgery demo (17/17 pass) |
+| [`docs/CODEX_TEST_REPORT.md`](docs/CODEX_TEST_REPORT.md) | Comprehensive external agent API test reports |
 
-## 目录结构
+## Known Issues
+
+- `SofaUnity_modules` submodule doesn't exist on GitHub (upstream issue) — doesn't affect Core functionality
+- macOS native library missing 9 entry points (25.12 ABI vs master C# gap) — shimmed; SOFA scene loading/stepping/gravity all work
+- SofaUnity tested on Unity 2020/2021 + Windows; this project verified on macOS + Unity 6000.6.7f1 (arm64)
+- Scene, arms, tasks all procedurally generated; `MultiArmAgentScene.unity` contains only camera/lights/floor/Manager
+
+## Project Structure
 
 ```
 Assets/
-├── SofaUnity/              # 官方插件（1.2G，不入库；./setup-sofaunity.sh 克隆+打补丁）
+├── SofaUnity/              # Official plugin (1.2GB, not in repo; setup script clones + patches)
 ├── Scripts/
-│   ├── Core/               # ArmSpec、RobotArmBuilder、RobotArmController、PayloadObject
-│   ├── Agent/              # IAgentBrain、Heuristic/Llm 大脑、ArmAgent、TaskSystem
-│   ├── Backend/            # 物理后端抽象 + SofaUnity/Unity 实现
+│   ├── Core/               # ArmSpec, RobotArmBuilder, RobotArmController, CameraWall
+│   ├── Agent/              # IAgentBrain, Heuristic/Llm brains, ArmAgent, TaskSystem
+│   ├── AgentApi/           # SurgicalAgentApi (HTTP server, screenshots, staleness detection)
+│   ├── Backend/            # Physics backend abstraction + SofaUnity/Unity implementations
+│   ├── Surgery/            # SutureExecutor, NeedleTool, organ sync, scenario framework
+│   │   └── Scenarios/      # 69 scenario definitions (7 flagship + 62 catalogue)
 │   └── MultiArmAgentManager.cs
-├── SceneSetup/Editor/      # SceneBuilder + PlayModeSmokeTest（菜单 / -executeMethod）
-├── StreamingAssets/SOFA/   # robot_cell.scn（SOFA 侧环境场景）
-└── Scenes/                 # MultiArmAgentScene.unity（生成物）
-setup-sofaunity.sh          # 克隆 SofaUnity + 应用 Unity 6 兼容补丁
+├── SceneSetup/Editor/      # SceneBuilder + PlayModeSmokeTest
+├── Shaders/                # BrainSurface (vertex-color Lambert), FlipY
+├── StreamingAssets/SOFA/   # .scn scenes + .vtk FEM meshes + .obj surfaces + bindings
+├── Scenes/                 # MultiArmAgentScene.unity
+└── Shaders/                # Custom shaders
+docs/                       # API docs, scenario manual, test reports, evidence images
+tools/                      # Protocol scripts, generators, launch scripts
+setup-sofaunity.sh          # Clone SofaUnity + apply Unity 6 compat patch
 sofaunity-unity6-compat.patch
 ```
 
-首次克隆本仓库后：`./setup-sofaunity.sh`，再用 Unity 打开工程。
+## License
+
+This project integrates [SofaUnity](https://github.com/InfinyTech3D/SofaUnity) and [SOFA](https://www.sofa-framework.org/). See their respective licenses.

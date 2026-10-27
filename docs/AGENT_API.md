@@ -87,15 +87,47 @@ curl -s http://127.0.0.1:8765/api/state | python3 -c "import json,sys;d=json.loa
 }
 ```
 
-## 1b. `GET /api/screenshot` —— 当前画面截图（PNG）
+## 1b. `GET /api/screenshot` —— 画面截图（六机位 + 合成图，PNG）
 
 ```bash
-curl -s http://127.0.0.1:8765/api/screenshot -o shot.png   # 960×540 主相机渲染
+curl -s http://127.0.0.1:8765/api/screenshot -o shot.png                        # 主视角，默认 4K 3840×2160
+curl -s "http://127.0.0.1:8765/api/screenshot?camera=front" -o front.png        # 前机位（4K）
+curl -s "http://127.0.0.1:8765/api/screenshot?camera=top&size=8k"  -o top8k.png # 顶机位 8K 7680×4320
+curl -s "http://127.0.0.1:8765/api/screenshot?camera=top&size=sd"  -o topsd.png # 顶机位 960×540（快速轮询）
+curl -s "http://127.0.0.1:8765/api/screenshot?camera=top&width=2048&height=1536" -o top.png  # 自定义分辨率
+curl -s "http://127.0.0.1:8765/api/screenshot?camera=screen" -o screen.png      # 整屏合成（显示器原生分辨率）
 ```
 
-- **响应**：`image/png`（960×540，主相机视角，含 HUD 由相机渲染，无编辑器 UI）
-- **机制**：请求触发主线程渲染一帧并编码（等待上限 4 秒，失败返回 503 JSON）
-- **典型用法**：视觉 Agent 每 1-2 秒拉一帧观察术野；与 `/api/state` 轮询互补
+- **分辨率**：单相机渲染走离屏 RenderTexture，**不受窗口/屏幕限制**。
+  - **默认 4K（3840×2160）**
+  - `size` 预设：`sd`(960×540) / `hd`(1280×720) / `fhd`(1920×1080) / `2k`(2560×1440) / `4k` / **`8k`=`max`(7680×4320)**
+  - 或 `width`/`height` 自定义（范围 320..7680）
+  - `camera=screen` 始终为**显示器原生分辨率**整屏合成（六宫格墙+HUD，本机 2560×1440）
+  - 未知 camera id 返回 400 与合法列表
+- **机制**：请求触发主线程渲染一帧并编码（等待上限 8 秒，失败返回 503 JSON）。**最高采样质量**：所有单相机截图均以 **2× 超采样 + 8× MSAA** 渲染后 GPU 精确降采样到目标尺寸（2× 下 bilinear=box filter，边缘零锯齿）；已修复 Metal 垂直翻转，输出正立
+- **典型用法**：视觉 Agent 多机位观察术野（顶机位看缝合布局、前机位看进针
+  角度、左右机位看器械位置）；与 `/api/state` 轮询互补
+
+## 1c. `GET /api/cameras` —— 机位清单与位置
+
+```bash
+curl -s http://127.0.0.1:8765/api/cameras | python3 -m json.tool
+```
+
+返回全部机位（主视角 + 前/后/左/右/顶五机位墙）：
+
+| 字段 | 含义 |
+|---|---|
+| `id` | 截图用的机位 ID（main/front/back/left/right/top） |
+| `label` | 显示名（画中画标签同款） |
+| `position`[3] | 相机世界坐标（米） |
+| `rotation`[3] | 相机欧拉角（度） |
+| `viewport`[4] | 画中画小窗的归一化屏幕区域（x,y,w,h；main 为全屏） |
+
+**六宫格视频墙常驻显示**：Game 视图被切为 3×2 六个大画面**同时显示**——
+上行：主视角 / 前 / 后；下行：左 / 右 / 顶。每格带边框与中文标签
+（主视角 MAIN、前 FRONT、后 BACK、左 LEFT、右 RIGHT、顶 TOP），
+随场景常驻，切换场景不重建；`camera=screen` 截图即所见画面。
 - `Content-Type: image/png`、`Cache-Control: no-store`（每次都是新帧）
 
 ## 2. `GET /api/scenarios` —— 场景目录（67 条）

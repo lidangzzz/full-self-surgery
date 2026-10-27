@@ -77,7 +77,12 @@ namespace SofaRobotAI.Surgery
             if (_stitchIndex >= _task.stitches.Count) return false;
             StitchPoint s = _task.stitches[_stitchIndex];
             if (Vector3.Distance(_needle.Tip.position, s.exit) > maxTipDistance) return false;
+            // The external agent owns the arm: do NOT GoHome on finish (the
+            // joint-target reset fights the API servo and flings the needle
+            // ~130 mm off the wound before the agent's next command).
+            _suppressFinishHome = true;
             CompleteStitch(s); // knot + band + thread anchors + advance/finish
+            _suppressFinishHome = false;
             return true;
         }
 
@@ -175,10 +180,15 @@ namespace SofaRobotAI.Surgery
             _phase = Phase.Finished;
             if (_task != null) _task.done = true;
             _status = "suture complete";
-            _arm.GoHome();
-            _arm.SetGripper(1f);
+            if (!_suppressFinishHome)
+            {
+                _arm.GoHome();
+                _arm.SetGripper(1f);
+            }
             _task = null;
         }
+
+        private bool _suppressFinishHome;
 
         /// <summary>Servos the arm so the needle TIP reaches the given world point.
         /// Convergence gates and gain are on the tip (the real objective): full

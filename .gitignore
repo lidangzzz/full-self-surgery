@@ -5,7 +5,6 @@
 [Bb]uild/
 [Bb]uilds/
 [Ll]ogs/
-[Uu]ser[Ss]ettings/
 [Mm]emoryCaptures/
 
 # Visual Studio / Rider
@@ -13,6 +12,7 @@
 .idea/
 *.csproj
 *.sln
+*.slnx
 *.user
 *.pidb
 *.booproj
@@ -22,10 +22,6 @@
 .DS_Store
 Thumbs.db
 
-# Unity crash reports
-sysinfo.txt
-*.stackdump
-
 # SofaUnity is a 1.2 GB upstream checkout - not vendored in this repo.
 # Run ./setup-sofaunity.sh to clone it + apply the compatibility patch.
 Assets/SofaUnity/
@@ -33,3 +29,11 @@ Assets/SofaUnity/
 # Unity-generated solution files
 *.slnx
 .vscode/
+
+# Evidence media (large, regenerable)
+docs/surgery_frames/
+docs/images/
+docs/surgery_video.mp4
+docs/logs/
+*.stackdump
+sysinfo.txt

@@ -53,47 +53,86 @@ namespace SofaRobotAI.Core
         private bool _hasLastPos;
 
         // ------------------------------------------------------------------ //
-        //  Servo control (Jacobian-transpose gradient step toward a target)
+        //  Servo control: damped-least-squares IK on a straight-line trajectory
         // ------------------------------------------------------------------ //
 
         /// <summary>
-        /// Moves the TCP toward <paramref name="worldTarget"/> by one servo step.
-        /// Call from FixedUpdate. Uses the Jacobian-transpose method: each revolute
-        /// joint is nudged proportionally to how much its twist moves the TCP toward
-        /// the target. Stable without an explicit IK solver and respects joint limits.
+        /// Tracks a Cartesian straight-line trajectory from the current TCP to
+        /// <paramref name="worldTarget"/> with damped-least-squares inverse
+        /// kinematics (replaces the old Jacobian-transpose gradient step, which
+        /// stagnated in twisted poses, left a 10-25 mm steady-state residual
+        /// and had a dead zone for small motions).
+        ///
+        /// Per physics step: advance a waypoint along the straight line at a
+        /// bounded tip speed, then solve dq = Jᵀ(JJᵀ + λ²I)⁻¹·e for the joint
+        /// delta that realizes the waypoint motion. Damping λ keeps the step
+        /// bounded through singularities instead of stalling.
         /// </summary>
         public void ServoToward(Vector3 worldTarget, float gain = 0.35f)
         {
             Vector3 tcpPos = _tcp.position;
             Vector3 error = worldTarget - tcpPos;
-            if (error.magnitude < 0.001f) return;
-            if (error.magnitude > 1.5f) error = error.normalized * 1.5f; // stay in linear region
+            if (error.magnitude < 0.0002f) return;
 
-            for (int i = 0; i < _joints.Length; i++)
+            // Bounded tip speed along the straight line (gain maps to speed;
+            // the executor uses 0.12-0.55 -> 0.052-0.095 m/s).
+            float tipSpeed = 0.04f + 0.10f * Mathf.Clamp(gain, 0f, 1f);
+            float maxTipStep = tipSpeed * Time.fixedDeltaTime;
+            Vector3 step = Vector3.ClampMagnitude(error, maxTipStep);
+
+            int n = _joints.Length;
+
+            // Per-joint TCP twists (the Jacobian columns) at the current pose.
+            var twists = new Vector3[n];
+            for (int i = 0; i < n; i++)
+            {
+                ArticulationBody joint = _joints[i];
+                Transform parentT = joint.transform.parent;
+                if (parentT == null) continue;
+                Vector3 axis = parentT.rotation * (joint.parentAnchorRotation * Vector3.right);
+                Vector3 origin = parentT.TransformPoint(joint.parentAnchorPosition);
+                twists[i] = Vector3.Cross(axis, tcpPos - origin);
+            }
+
+            // Damped least squares:  dq = Jt (J Jt + l^2 I)^-1 * step
+            // A = J Jt + l^2 I is 3x3; solve A*y = step via Cramer's rule.
+            const float lambda = 0.012f;
+            float l2 = lambda * lambda;
+            float a00 = l2, a01 = 0f, a02 = 0f, a11 = l2, a12 = 0f, a22 = l2;
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 t = twists[i];
+                a00 += t.x * t.x; a01 += t.x * t.y; a02 += t.x * t.z;
+                a11 += t.y * t.y; a12 += t.y * t.z;
+                a22 += t.z * t.z;
+            }
+            float det = a00 * (a11 * a22 - a12 * a12)
+                       - a01 * (a01 * a22 - a12 * a02)
+                       + a02 * (a01 * a12 - a11 * a02);
+            if (Mathf.Abs(det) < 1e-12f) return;
+            float invDet = 1f / det;
+            float yx = ((a11 * a22 - a12 * a12) * step.x + (a02 * a12 - a01 * a22) * step.y + (a01 * a12 - a02 * a11) * step.z) * invDet;
+            float yy = ((a02 * a12 - a01 * a22) * step.x + (a00 * a22 - a02 * a02) * step.y + (a01 * a02 - a00 * a12) * step.z) * invDet;
+            float yz = ((a01 * a12 - a02 * a11) * step.x + (a01 * a02 - a00 * a12) * step.y + (a00 * a11 - a01 * a01) * step.z) * invDet;
+
+            for (int i = 0; i < n; i++)
             {
                 ArticulationBody joint = _joints[i];
                 JointSpec js = _spec.joints[i];
-
                 Transform parentT = joint.transform.parent;
                 if (parentT == null) continue;
 
-                // World axis & origin of joint i from the parent-side anchor frame.
-                Vector3 axis = parentT.rotation * (joint.parentAnchorRotation * Vector3.right);
-                Vector3 origin = parentT.TransformPoint(joint.parentAnchorPosition);
-                Vector3 r = tcpPos - origin;
-                Vector3 twistVel = Vector3.Cross(axis, r); // TCP velocity per unit joint speed
-                float denom = twistVel.sqrMagnitude + 1e-4f; // damped least squares
-                float delta = gain * Vector3.Dot(twistVel, error) / denom;
+                float delta = twists[i].x * yx + twists[i].y * yy + twists[i].z * yz;
 
-                // Clamp per-step step so the servo stays smooth and respects limits.
+                // Per-step joint clamp keeps the motion smooth and bounded
+                // even when the DLS solution is aggressive near a limit.
                 float maxStep = js.maxServoStepDeg * Mathf.Deg2Rad;
                 delta = Mathf.Clamp(delta, -maxStep, maxStep);
 
-                float currentRad = joint.jointPosition[0];
-                float targetRad = currentRad + delta;
-                float lo = js.lowerLimitDeg * Mathf.Deg2Rad;
-                float hi = js.upperLimitDeg * Mathf.Deg2Rad;
-                targetRad = Mathf.Clamp(targetRad, lo, hi);
+                float targetRad = joint.jointPosition[0] + delta;
+                targetRad = Mathf.Clamp(targetRad,
+                                        js.lowerLimitDeg * Mathf.Deg2Rad,
+                                        js.upperLimitDeg * Mathf.Deg2Rad);
 
                 var drive = joint.xDrive;
                 drive.target = targetRad * Mathf.Rad2Deg;
